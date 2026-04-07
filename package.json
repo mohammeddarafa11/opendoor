@@ -31,6 +31,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.13",
     "nodemon": "^3.1.11",
-    "paymob": "^1.0.2"
+    "paymob": "^1.0.2",
+    "serverless-http": "^3.2.0"
   }
 }

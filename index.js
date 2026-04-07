@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({
+  quiet: Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.VERCEL),
+});
 
 import express from "express";
 import cors from "cors";
@@ -25,7 +27,7 @@ const required = ["MONGO_URI", "JWT_SECRET"];
 for (const key of required) {
   if (!process.env[key]) {
     console.error(`❌ Missing env var: ${key}`);
-    process.exit(1);
+    throw new Error(`Missing required env var: ${key}`);
   }
 }
 
@@ -43,11 +45,34 @@ app.use(
 );
 
 // ─── 2. CORS ────────────────────────────────────────────────────────
+// FRONTEND_URL: single origin or comma-separated (e.g. prod + Vercel preview URLs).
+// Trailing slashes are ignored so https://app.vercel.app matches the browser Origin.
+function normalizeOrigin(url) {
+  if (!url || typeof url !== "string") return "";
+  return url.trim().replace(/\/+$/, "");
+}
+
+const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173")
+  .split(",")
+  .map(normalizeOrigin)
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      const reqOrigin = normalizeOrigin(origin);
+      if (allowedOrigins.includes(reqOrigin)) {
+        callback(null, origin);
+        return;
+      }
+      callback(null, false);
+    },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
@@ -153,12 +178,14 @@ app.use(function errorHandler(err, req, res, next) {
   });
 });
 
-// ─── 12. Start ──────────────────────────────────────────────────────
+// ─── 12. Start (long-lived server only — Vercel uses api/index.js + serverless-http) ──
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
-  startScheduledTasks();
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
+    startScheduledTasks();
+  });
+}
 
 export default app;

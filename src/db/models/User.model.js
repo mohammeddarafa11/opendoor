@@ -91,8 +91,7 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 };
 
 // ─── Indexes ────────────────────────────────────────────────────────
-userSchema.index({ email: 1 });
-userSchema.index({ phone: 1 });
+// email & phone: unique fields already get indexes — do not duplicate with schema.index()
 userSchema.index({ role: 1 });
 
 const User = mongoose.model("User", userSchema);
