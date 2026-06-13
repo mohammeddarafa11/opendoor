@@ -4,6 +4,7 @@ dotenv.config({
 });
 
 import express from "express";
+import mongoose from "mongoose";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -30,9 +31,6 @@ for (const key of required) {
     throw new Error(`Missing required env var: ${key}`);
   }
 }
-
-// Connect DB
-await connectDB();
 
 const app = express();
 
@@ -123,7 +121,30 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── 8. Routes ──────────────────────────────────────────────────────
+// ─── 8. Health check (no DB — must respond even if Mongo is down) ────
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    db: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── 9. Ensure DB connection before data routes ─────────────────────
+// Lazy connect: on serverless (Vercel) the connection is established on the
+// first request and reused on warm invocations. A failure returns a clean
+// 503 (with CORS headers already set above) instead of crashing the function.
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error("❌ DB connection failed:", err.message);
+    res.status(503).json({ message: "Database temporarily unavailable" });
+  }
+});
+
+// ─── 10. Routes ─────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/units", unitRoutes);
 app.use("/api/reservations", reservationRoutes);
@@ -135,12 +156,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/blocks", blockRoutes);
 
-// ─── 9. Health check ────────────────────────────────────────────────
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
-// ─── 10. 404 ────────────────────────────────────────────────────────
+// ─── 11. 404 ────────────────────────────────────────────────────────
 app.use((req, res) => {
   res
     .status(404)
@@ -178,14 +194,21 @@ app.use(function errorHandler(err, req, res, next) {
   });
 });
 
-// ─── 12. Start (long-lived server only — Vercel uses api/index.js + serverless-http) ──
+// ─── 13. Start (long-lived server only — Vercel uses api/index.js + serverless-http) ──
 const PORT = process.env.PORT || 5000;
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
-    startScheduledTasks();
-  });
+  connectDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
+        startScheduledTasks();
+      });
+    })
+    .catch((err) => {
+      console.error("❌ Failed to start — DB connection error:", err.message);
+      process.exit(1);
+    });
 }
 
 export default app;
