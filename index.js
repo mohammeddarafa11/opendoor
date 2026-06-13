@@ -21,7 +21,6 @@ import dashboardRoutes from "./src/routes/dashboardRoutes.js";
 import adminRoutes from "./src/routes/adminRoutes.js";
 import projectRoutes from "./src/routes/projectRoutes.js";
 import blockRoutes from "./src/routes/blockRoutes.js";
-import { startScheduledTasks } from "./src/scripts/scheduledTasks.js";
 
 // Validate required env vars
 const required = ["MONGO_URI", "JWT_SECRET"];
@@ -55,6 +54,11 @@ const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173")
   .map(normalizeOrigin)
   .filter(Boolean);
 
+// Any *.vercel.app origin is allowed too, so the frontend works regardless of
+// which Vercel domain it ends up deployed on (prod, preview, renamed project).
+const isVercelOrigin = (origin) =>
+  /^https:\/\/([a-z0-9-]+\.)*vercel\.app$/i.test(origin);
+
 app.use(
   cors({
     origin(origin, callback) {
@@ -63,7 +67,7 @@ app.use(
         return;
       }
       const reqOrigin = normalizeOrigin(origin);
-      if (allowedOrigins.includes(reqOrigin)) {
+      if (allowedOrigins.includes(reqOrigin) || isVercelOrigin(reqOrigin)) {
         callback(null, origin);
         return;
       }
@@ -202,7 +206,6 @@ if (!process.env.VERCEL) {
       app.listen(PORT, () => {
         console.log(`🚀 Server running on port ${PORT}`);
         console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
-        startScheduledTasks();
       });
     })
     .catch((err) => {
